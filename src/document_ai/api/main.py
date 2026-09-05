@@ -21,6 +21,8 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from document_ai.config import RAW_DOCS_DIR, VECTOR_DB_DIR
@@ -32,6 +34,9 @@ from document_ai.analyst.retrieve_more import set_retriever_callback
 from document_ai.answer.agent import AnswerAgent
 from document_ai.orchestrator.orchestrator import Orchestrator
 from document_ai.schemas.answer import FinalAnswer
+from document_ai.report.agent import ReportAgent
+from document_ai.voice.transcriber import VoiceTranscriber
+from fastapi.responses import FileResponse
 from document_ai.logger import setup_logging
 import logging
 
@@ -58,6 +63,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Serve the frontend
+frontend_dir = Path(__file__).parent.parent.parent.parent / "frontend"
+app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
 
 # ── Lazy-initialised agent singletons ─────────────────────────────────
 _retriever: RetrieverAgent | None = None
@@ -77,6 +85,21 @@ def _get_orchestrator() -> Orchestrator:
         _orch      = Orchestrator(_retriever, _analyst, _answer)
     return _orch
 
+_report_agent: ReportAgent | None = None
+
+def _get_report_agent() -> ReportAgent:
+    global _report_agent
+    if _report_agent is None:
+        _report_agent = ReportAgent()
+    return _report_agent
+
+_transcriber: VoiceTranscriber | None = None
+
+def _get_transcriber() -> VoiceTranscriber:
+    global _transcriber
+    if _transcriber is None:
+        _transcriber = VoiceTranscriber()
+    return _transcriber
 
 # ── Request / Response models ──────────────────────────────────────────
 class QueryRequest(BaseModel):
@@ -96,18 +119,19 @@ class IngestResponse(BaseModel):
 class DocumentListResponse(BaseModel):
     documents: List[str]
 
+class TranscriptionResponse(BaseModel):
+    text: str
+    language: str
+    language_probability: float
+    duration: float
 
 # ── Endpoints ──────────────────────────────────────────────────────────
 
-@app.get("/", tags=["System"])
+@app.get("/", response_class=HTMLResponse, tags=["System"])
 def root():
-    """Root status endpoint."""
-    return {
-        "status": "online",
-        "message": "Document AI Assistant API is running.",
-        "docs_url": "/docs",
-        "health_url": "/health",
-    }
+    """Root status endpoint - returns the frontend."""
+    index_file = frontend_dir / "index.html"
+    return index_file.read_text(encoding="utf-8")
 
 
 @app.get("/health", tags=["System"])
@@ -161,6 +185,70 @@ def list_documents():
     docs = sorted(p.name for p in RAW_DOCS_DIR.iterdir() if p.is_file())
     return DocumentListResponse(documents=docs)
 
+@app.post("/transcribe", response_model=TranscriptionResponse, tags=["Voice"])
+async def transcribe_audio(
+    file: UploadFile = File(...),
+    language: Optional[str] = Query(
+        default=None,
+        description="Force a language code (e.g. 'en', 'ar'). Omit to auto-detect.",
+    ),
+):
+    """
+    Transcribe a recorded voice question (wav/mp3/m4a/webm/ogg) to text
+    using faster-whisper.
+    """
+    audio_bytes = await file.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="No audio data received.")
+    logger.info(f"Transcribing voice query: {file.filename} ({len(audio_bytes)} bytes)")
+    try:
+        transcriber = _get_transcriber()
+        result = transcriber.transcribe(
+            audio_bytes, filename=file.filename or "audio.wav", language=language
+        )
+        if not result.text:
+            raise HTTPException(
+                status_code=422,
+                detail="Could not detect any speech in the recording.",
+            )
+        return TranscriptionResponse(
+            text=result.text,
+            language=result.language,
+            language_probability=result.language_probability,
+            duration=result.duration,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Transcription failed.")
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
+
+@app.post("/query/voice", response_model=FinalAnswer, tags=["Voice"])
+async def query_voice(
+    file: UploadFile = File(...),
+    max_loops: int = Query(default=3),
+    language: Optional[str] = Query(default=None),
+):
+    """
+    Convenience endpoint that chains transcription + the full Q&A pipeline.
+    """
+    audio_bytes = await file.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="No audio data received.")
+    transcriber = _get_transcriber()
+    transcription = transcriber.transcribe(
+        audio_bytes, filename=file.filename or "audio.wav", language=language
+    )
+    if not transcription.text:
+        raise HTTPException(
+            status_code=422, detail="Could not detect any speech in the recording."
+        )
+    logger.info(f"Voice query transcribed to: '{transcription.text}'")
+    orch = _get_orchestrator()
+    answer: FinalAnswer = orch.run(
+        question=transcription.text, filters=None, max_loops=max_loops
+    )
+    return answer
 
 @app.post("/query", response_model=FinalAnswer, tags=["Query"])
 def query(request: QueryRequest):
@@ -183,5 +271,23 @@ def query(request: QueryRequest):
         )
         logger.info(f"Query completed successfully. Confidence: {answer.confidence:.2f}")
         return answer
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/generate_report", tags=["Report"])
+def generate_report(answer: FinalAnswer):
+    """
+    Generates a PDF report from a FinalAnswer, extracting design 
+    constraints from the user's question via LLM.
+    """
+    try:
+        report_agent = _get_report_agent()
+        pdf_path = report_agent.generate_pdf(answer, answer.question)
+        return FileResponse(
+            path=pdf_path,
+            media_type="application/pdf",
+            filename="AI_Report.pdf",
+            headers={"Content-Disposition": "attachment; filename=AI_Report.pdf"}
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

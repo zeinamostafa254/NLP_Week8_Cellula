@@ -34,4 +34,6 @@ dependencies = [
     "pillow>=11.0.0",
     # --- New: LangSmith monitoring ---
     "langsmith>=0.1.147",
+    # --- New: PDF generation ---
+    "fpdf2>=2.7.9",
 ]
