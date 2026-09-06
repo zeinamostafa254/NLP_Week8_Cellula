@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document AI Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-grad: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-grad);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 300px;
+            background: rgba(0, 0, 0, 0.2);
+            border-right: 1px solid var(--glass-border);
+            padding: 2rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .sidebar h1 { font-size: 1.5rem; font-weight: 700; display: flex; align-items: center; gap: 0.75rem; }
+        
+        .upload-section {
+            background: var(--glass-bg);
+            border: 1px dashed rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            transition: all 0.3s;
+        }
+        .upload-section:hover { border-color: var(--primary); }
+        
+        input[type="file"] { display: none; }
+        .btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.25rem;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            width: 100%;
+        }
+        .btn:hover { background: var(--primary-hover); transform: translateY(-1px); }
+        
+        /* Main Chat Area */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .chat-container {
+            flex: 1;
+            padding: 2rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 1.25rem;
+            border-radius: 12px;
+            animation: fadeIn 0.3s ease-out;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .message.user {
+            background: var(--primary);
+            align-self: flex-end;
+            border-bottom-right-radius: 2px;
+        }
+
+        .message.assistant {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            backdrop-filter: blur(12px);
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+            width: 100%;
+        }
+
+        .citations { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--glass-border); font-size: 0.9rem; color: var(--text-muted); }
+        .citation-item { margin-bottom: 0.5rem; }
+        
+        .report-btn {
+            background: linear-gradient(135deg, #f43f5e, #8b5cf6);
+            margin-top: 1rem;
+            width: auto;
+        }
+
+        /* Input Area */
+        .input-area {
+            padding: 1.5rem 2rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-top: 1px solid var(--glass-border);
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 0.5rem 1rem;
+        }
+
+        .input-wrapper input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: white;
+            padding: 0.75rem;
+            font-size: 1rem;
+            font-family: inherit;
+        }
+        .input-wrapper input:focus { outline: none; }
+
+        .icon-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.25rem;
+            cursor: pointer;
+            transition: color 0.2s;
+            padding: 0.5rem;
+        }
+        .icon-btn:hover { color: white; }
+        .icon-btn.recording { color: #f43f5e; animation: pulse 1.5s infinite; }
+        
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        
+        #loading { display: none; text-align: center; color: var(--text-muted); }
+        
+        /* Voice Edit Modal */
+        #voiceModal {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(5px);
+            align-items: center; justify-content: center;
+        }
+        .modal-content {
+            background: #1e1b4b;
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid var(--glass-border);
+            width: 500px;
+        }
+        .modal-content textarea {
+            width: 100%; height: 100px;
+            background: rgba(0,0,0,0.2); border: 1px solid var(--glass-border);
+            color: white; padding: 1rem; border-radius: 8px; margin: 1rem 0;
+            font-family: inherit; resize: none;
+        }
+        .modal-actions { display: flex; gap: 1rem; justify-content: flex-end; }
+
+    </style>
+</head>
+<body>
+
+    <aside class="sidebar">
+        <h1><i class="fa-solid fa-magnifying-glass"></i> Document AI</h1>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">Multi-agent RAG System</p>
+        
+        <div class="upload-section">
+            <i class="fa-solid fa-cloud-arrow-up" style="font-size: 2rem; margin-bottom: 1rem; color: var(--primary)"></i>
+            <h3 style="margin-bottom: 0.5rem;">Upload Documents</h3>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">PDF, DOCX, TXT, Images</p>
+            <label class="btn" style="width: 100%;">
+                Choose Files
+                <input type="file" id="fileInput" multiple>
+            </label>
+            <button class="btn" id="uploadBtn" style="margin-top: 0.5rem; display: none;">Ingest Documents</button>
+            <div id="uploadStatus" style="font-size: 0.8rem; margin-top: 1rem;"></div>
+        </div>
+
+        <div>
+            <h3 style="margin-bottom: 1rem; font-size: 1rem;">⚙️ Settings</h3>
+            <label style="font-size: 0.9rem; color: var(--text-muted);">Retrieval Loops: <span id="loopValue">3</span></label>
+            <input type="range" id="maxLoops" min="1" max="5" value="3" style="width: 100%; margin-top: 0.5rem;">
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <div class="chat-container" id="chatContainer">
+            <div class="message assistant">
+                Hello! I am your Document AI Assistant. Upload some documents and ask me anything. You can also use the microphone to ask questions by voice!
+            </div>
+        </div>
+        
+        <div id="loading"><i class="fa-solid fa-circle-notch fa-spin"></i> Processing...</div>
+
+        <div class="input-area">
+            <div class="input-wrapper">
+                <input type="text" id="questionInput" placeholder="Ask a question about your documents... (e.g. Make the title red)">
+                <button class="icon-btn" id="micBtn" title="Hold to record"><i class="fa-solid fa-microphone"></i></button>
+                <button class="icon-btn" id="sendBtn"><i class="fa-solid fa-paper-plane"></i></button>
+            </div>
+        </div>
+    </main>
+
+    <!-- Voice Edit Modal -->
+    <div id="voiceModal">
+        <div class="modal-content">
+            <h3>Did you mean?</h3>
+            <textarea id="voiceTranscript"></textarea>
+            <div class="modal-actions">
+                <button class="btn" style="background: transparent; border: 1px solid var(--glass-border);" id="cancelVoice">Discard</button>
+                <button class="btn" id="sendVoice">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = "http://127.0.0.1:8000";
+        
+        // Elements
+        const chatContainer = document.getElementById('chatContainer');
+        const questionInput = document.getElementById('questionInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const micBtn = document.getElementById('micBtn');
+        const loading = document.getElementById('loading');
+        const fileInput = document.getElementById('fileInput');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const uploadStatus = document.getElementById('uploadStatus');
+        
+        // Upload logic
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) {
+                uploadBtn.style.display = 'inline-flex';
+            }
+        });
+
+        uploadBtn.addEventListener('click', async () => {
+            const files = fileInput.files;
+            if (files.length === 0) return;
+            
+            const formData = new FormData();
+            for (let i = 0; i < files.length; i++) {
+                formData.append('files', files[i]);
+            }
+            
+            uploadStatus.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Ingesting...';
+            try {
+                const res = await fetch(`${API_BASE}/ingest`, { method: 'POST', body: formData });
+                const data = await res.json();
+                if (res.ok) {
+                    uploadStatus.innerHTML = `<span style="color: #4ade80;">✅ ${data.files_ingested} files ingested.</span>`;
+                    fileInput.value = '';
+                    uploadBtn.style.display = 'none';
+                } else {
+                    uploadStatus.innerHTML = `<span style="color: #f87171;">❌ Error: ${data.detail}</span>`;
+                }
+            } catch (err) {
+                uploadStatus.innerHTML = `<span style="color: #f87171;">❌ Connection Error</span>`;
+            }
+        });
+
+        // Chat logic
+        async function sendMessage(text) {
+            if (!text.trim()) return;
+            
+            // Add user message
+            appendMessage('user', text);
+            questionInput.value = '';
+            loading.style.display = 'block';
+            chatContainer.scrollTo(0, chatContainer.scrollHeight);
+            
+            const maxLoops = document.getElementById('maxLoops').value;
+            
+            try {
+                const res = await fetch(`${API_BASE}/query`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question: text, max_loops: parseInt(maxLoops) })
+                });
+                
+                const data = await res.json();
+                loading.style.display = 'none';
+                
+                if (res.ok) {
+                    appendAssistantMessage(data);
+                } else {
+                    appendMessage('assistant', `❌ Error: ${data.detail}`);
+                }
+            } catch (err) {
+                loading.style.display = 'none';
+                appendMessage('assistant', `❌ Connection Error: Ensure backend is running.`);
+            }
+        }
+
+        function appendMessage(role, text) {
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+            div.textContent = text;
+            chatContainer.appendChild(div);
+            chatContainer.scrollTo(0, chatContainer.scrollHeight);
+        }
+
+        function appendAssistantMessage(data) {
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            
+            // Basic markdown parser for bold
+            let htmlAnswer = data.answer.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            
+            let content = `<div>${htmlAnswer}</div>`;
+            
+            if (data.citations && data.citations.length > 0) {
+                content += `<div class="citations"><strong>Citations:</strong><br>`;
+                data.citations.forEach(c => {
+                    let pageStr = c.page ? `, pg ${c.page}` : '';
+                    content += `<div class="citation-item">[${c.ref_id}] ${c.doc}${pageStr} (score: ${c.score.toFixed(2)})<br><i>"${c.snippet}"</i></div>`;
+                });
+                content += `</div>`;
+            }
+            
+            div.innerHTML = content;
+            
+            // Add AI Report Button
+            const btn = document.createElement('button');
+            btn.className = 'btn report-btn';
+            btn.innerHTML = '<i class="fa-solid fa-file-pdf"></i> Generate AI Report';
+            btn.onclick = () => generateReport(data, btn);
+            div.appendChild(btn);
+            
+            chatContainer.appendChild(div);
+            chatContainer.scrollTo(0, chatContainer.scrollHeight);
+        }
+
+        async function generateReport(answerData, btnElement) {
+            btnElement.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating...';
+            btnElement.disabled = true;
+            
+            try {
+                const res = await fetch(`${API_BASE}/generate_report`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(answerData)
+                });
+                
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'AI_Report.pdf';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                    
+                    btnElement.innerHTML = '<i class="fa-solid fa-check"></i> Downloaded';
+                } else {
+                    alert("Failed to generate report.");
+                    btnElement.innerHTML = '<i class="fa-solid fa-file-pdf"></i> Try Again';
+                    btnElement.disabled = false;
+                }
+            } catch (err) {
+                alert("Connection Error.");
+                btnElement.innerHTML = '<i class="fa-solid fa-file-pdf"></i> Try Again';
+                btnElement.disabled = false;
+            }
+        }
+
+        sendBtn.addEventListener('click', () => sendMessage(questionInput.value));
+        questionInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage(questionInput.value);
+        });
+
+        // Voice Recording Logic
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+
+        micBtn.addEventListener('click', async () => {
+            if (!isRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    
+                    mediaRecorder.ondataavailable = e => {
+                        audioChunks.push(e.data);
+                    };
+                    
+                    mediaRecorder.onstop = async () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' }); // Chrome uses webm
+                        audioChunks = [];
+                        
+                        micBtn.classList.remove('recording');
+                        questionInput.placeholder = "Processing audio...";
+                        
+                        const formData = new FormData();
+                        formData.append('file', audioBlob, 'voice.webm');
+                        
+                        try {
+                            const res = await fetch(`${API_BASE}/transcribe`, { method: 'POST', body: formData });
+                            const data = await res.json();
+                            questionInput.placeholder = "Ask a question...";
+                            
+                            if (res.ok && data.text) {
+                                document.getElementById('voiceTranscript').value = data.text;
+                                document.getElementById('voiceModal').style.display = 'flex';
+                            } else {
+                                alert("Transcription failed.");
+                            }
+                        } catch (err) {
+                            questionInput.placeholder = "Ask a question...";
+                            alert("Failed to connect to transcriber.");
+                        }
+                    };
+                    
+                    mediaRecorder.start();
+                    isRecording = true;
+                    micBtn.classList.add('recording');
+                    questionInput.placeholder = "Recording... Click mic again to stop.";
+                    
+                } catch (err) {
+                    alert("Microphone access denied.");
+                }
+            } else {
+                mediaRecorder.stop();
+                isRecording = false;
+            }
+        });
+
+        // Modal Logic
+        document.getElementById('cancelVoice').addEventListener('click', () => {
+            document.getElementById('voiceModal').style.display = 'none';
+        });
+        document.getElementById('sendVoice').addEventListener('click', () => {
+            const text = document.getElementById('voiceTranscript').value;
+            document.getElementById('voiceModal').style.display = 'none';
+            sendMessage(text);
+        });
+
+        // Settings
+        document.getElementById('maxLoops').addEventListener('input', (e) => {
+            document.getElementById('loopValue').textContent = e.target.value;
+        });
+        
+    </script>
+</body>
+</html>

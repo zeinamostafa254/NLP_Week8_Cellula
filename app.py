@@ -33,6 +33,42 @@ st.set_page_config(
     layout="wide",
 )
 
+st.markdown("""
+<style>
+/* Modern Premium Glassmorphism UI */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+html, body, [class*="css"]  {
+    font-family: 'Inter', sans-serif !important;
+}
+/* Style the chat container */
+.stChatMessage {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+.stButton>button {
+    background: linear-gradient(135deg, #6e8efb, #a777e3);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+.stButton>button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(167, 119, 227, 0.4);
+    color: white;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 # ── Session state ──────────────────────────────────────────────────────
 if "chat_history" not in st.session_state:
     st.session_state.chat_history: List[Dict[str, Any]] = []
@@ -64,6 +100,16 @@ def _query(question: str, max_loops: int = 3) -> Dict[str, Any]:
     )
     r.raise_for_status()
     return r.json()
+
+
+def _generate_report(turn_data: Dict[str, Any]) -> bytes:
+    r = httpx.post(
+        f"{API_BASE}/generate_report",
+        json=turn_data,
+        timeout=180,
+    )
+    r.raise_for_status()
+    return r.content
 
 
 def _list_docs() -> List[str]:
@@ -199,6 +245,22 @@ with tab_chat:
             cols[0].metric("Confidence", f"{turn.get('confidence', 0):.0%}")
             cols[1].metric("Evidence chunks", meta.get("evidence_count", "—"))
             cols[2].metric("Retrieval loops", meta.get("iterations", "—"))
+            
+            # AI Report Button
+            st.divider()
+            if st.button("📄 Generate AI Report (PDF)", key=f"btn_report_{turn['question']}"):
+                with st.spinner("🧠 LLM is extracting design preferences and generating PDF..."):
+                    try:
+                        pdf_bytes = _generate_report(turn)
+                        st.download_button(
+                            label="📥 Download PDF",
+                            data=pdf_bytes,
+                            file_name="AI_Report.pdf",
+                            mime="application/pdf",
+                            key=f"dl_report_{turn['question']}"
+                        )
+                    except Exception as e:
+                        st.error(f"Failed to generate report: {e}")
 
     # Input
     question = st.chat_input("Ask a question about your documents…")
@@ -248,6 +310,21 @@ with tab_chat:
                         "confidence": confidence,
                         "metadata":   metadata,
                     })
+                    
+                    st.divider()
+                    if st.button("📄 Generate AI Report (PDF)", key="btn_report_new"):
+                        with st.spinner("🧠 LLM is extracting design preferences and generating PDF..."):
+                            try:
+                                pdf_bytes = _generate_report(st.session_state.chat_history[-1])
+                                st.download_button(
+                                    label="📥 Download PDF",
+                                    data=pdf_bytes,
+                                    file_name="AI_Report.pdf",
+                                    mime="application/pdf",
+                                    key="dl_report_new"
+                                )
+                            except Exception as e:
+                                st.error(f"Failed to generate report: {e}")
 
                 except httpx.HTTPStatusError as e:
                     detail = e.response.json().get("detail", str(e))
